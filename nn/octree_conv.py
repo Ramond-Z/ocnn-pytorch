@@ -14,7 +14,10 @@ from ..octree import Octree
 from ..utils import scatter_add, xavier_uniform_, resize_with_last_val, list2str
 from .octree2col import octree2col, col2octree
 from .octree_pad import octree_pad, octree_depad
-from .implicit_gemm import ocnn_forward_implicit_gemm
+from .implicit_gemm import (
+    ocnn_forward_implicit_gemm,
+    # ocnn_backward_weight_implicit_gemm
+)
 
 
 class OctreeConvBase:
@@ -92,7 +95,12 @@ class OctreeConvBase:
 
         # The neighborhood indices
         self.neigh = octree.get_neigh(
-            self.neigh_depth, self.kernel, self.stride, self.nempty)
+            self.neigh_depth, self.kernel, self.stride, self.nempty).contiguous()
+
+        # inverse neighbour to calculate grad w.r.t input feature
+        self.inverse_neighbour = octree.get_inv_neigh(
+            self.neigh_depth, self.kernel, self.stride, self.nempty
+        ).contiguous()
 
         # The heigh and number of the temporary buffer
         self.buffer_n = 1
@@ -252,6 +260,8 @@ class OctreeConvBase:
         '''
         if self.backward_feat_algo == 'memory_efficient_gemm':
             return self.memory_efficient_gemm_backward(out, grad, weights)
+        elif self.backward_feat_algo == 'implicit_gemm':
+            return ocnn_forward_implicit_gemm(grad, weights.permute(1, 0, 2).contiguous(), None, self.inverse_neighbour)
         else:
             raise ValueError('Unsupported backward w.r.t feat algorithm: {}'.format(self.backward_feat_algo))
 
@@ -263,8 +273,8 @@ class OctreeConvBase:
     ):
         if self.backward_weight_algo == 'memory_efficient_gemm':
             return self.memory_efficient_gemm_backward_weight(out, data, grad)
-        elif self.backward_weight_algo == 'implicit_gemm':
-            raise NotImplementedError
+        # elif self.backward_weight_algo == 'implicit_gemm':
+        #     return ocnn_backward_weight_implicit_gemm(grad.contiguous(), data.contiguous(), self.neigh)
         else:
             raise ValueError('Unsupported backward w.r.t weight algorithm: {}'.format(self.backward_weight_algo))
 
@@ -453,6 +463,9 @@ class OctreeConv(OctreeConvBase, torch.nn.Module):
         self.forward_algo = forward_algo
         self.backward_feat_algo = backward_feat_algo
         self.backward_weight_algo = backward_weight_algo
+        if self.backward_feat_algo == 'implicit_gemm' and stride != 1:
+            print('[warning]: implicit gemm backward w.r.t input feature only supports cases with stride == 1, using memory_efficient_gemm instead')
+            self.backward_feat_algo = 'memory_efficient_gemm'
         if self.use_bias:
             self.bias = torch.nn.Parameter(torch.Tensor(out_channels))
         self.reset_parameters()

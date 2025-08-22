@@ -59,6 +59,7 @@ class Octree:
     self.keys = [None] * num
     self.children = [None] * num
     self.neighs = [None] * num
+    self.inv_neighs = [None] * num
     self.features = [None] * num
     self.normals = [None] * num
     self.points = [None] * num
@@ -298,6 +299,7 @@ class Octree:
       self.keys.append(None)
       self.children.append(None)
       self.neighs.append(None)
+      self.inv_neighs.append(None)
       self.features.append(None)
       self.normals.append(None)
       self.points.append(None)
@@ -354,6 +356,7 @@ class Octree:
       invalid = torch.logical_or((xyz < 0).any(1), (xyz >= bound).any(1))
       neigh[:, invalid] = -1
       self.neighs[depth] = neigh.view(-1, 27)  # (B*N, 27)
+      self.inv_neighs[depth] = neigh.view(-1, 27).flip(1)
 
     else:
       child_p = self.children[depth-1]
@@ -365,6 +368,7 @@ class Octree:
       neigh = child_p * 8 + self.lut_child
       neigh[invalid] = -1
       self.neighs[depth] = neigh.view(-1, 27)
+      self.inv_neighs[depth] = neigh.view(-1, 27).flip(1)
 
   def construct_all_neigh(self):
     r''' A convenient handler for constructing all neighbors.
@@ -449,6 +453,30 @@ class Octree:
     elif kernel in self.lut_kernel:
       lut = self.lut_kernel[kernel]
       return neigh[:, lut]
+    else:
+      raise ValueError('Unsupported kernel {}'.format(kernel))
+
+  def get_inv_neigh(self, depth: int, kernel: str = '333', stride: int = 1, nempty: bool = False):
+    if stride == 1:
+      inv_neigh = self.inv_neighs[depth]
+    elif stride == 2:
+      inv_neigh = self.inv_neighs[depth][::8].clone()
+    else:
+      raise ValueError('Unsupported stride {}'.format(stride))
+
+    if nempty:
+      child = self.children[depth]
+      if stride == 1:
+        nempty_node = child >= 0
+        inv_neigh = inv_neigh[nempty_node]
+      valid = inv_neigh >= 0
+      inv_neigh[valid] = child[inv_neigh[valid]].long()
+
+    if kernel == '333':
+      return inv_neigh
+    elif kernel in self.lut_kernel:
+      lut = self.lut_kernel[kernel]
+      return inv_neigh[:, lut]
     else:
       raise ValueError('Unsupported kernel {}'.format(kernel))
 
@@ -553,6 +581,7 @@ class Octree:
     octree.keys = list_to_device(self.keys)
     octree.children = list_to_device(self.children)
     octree.neighs = list_to_device(self.neighs)
+    octree.inv_neighs = list_to_device(self.inv_neighs)
     octree.features = list_to_device(self.features)
     octree.normals = list_to_device(self.normals)
     octree.points = list_to_device(self.points)
