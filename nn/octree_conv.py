@@ -295,6 +295,7 @@ class OctreeConvFunction(Function):
     '''
 
     @staticmethod
+    @torch.amp.custom_fwd(device_type='cuda', cast_inputs=torch.bfloat16)
     def forward(
         ctx,
         data: torch.Tensor,
@@ -323,7 +324,7 @@ class OctreeConvFunction(Function):
             backward_weight_algo
         )
         octree_conv.setup(octree, depth)
-        out = octree_conv.check_and_init(data)
+        out = octree_conv.check_and_init(data) if forward_algo == 'memory_efficient_gemm' else None
         out = octree_conv.forward_gemm(out, data, weights)
 
         ctx.save_for_backward(data, weights)
@@ -331,6 +332,7 @@ class OctreeConvFunction(Function):
         return out
 
     @staticmethod
+    @torch.amp.custom_bwd(device_type='cuda')
     def backward(ctx, grad):
         data, weights = ctx.saved_tensors
         octree_conv = ctx.octree_conv
@@ -353,12 +355,18 @@ class OctreeDeconvFunction(Function):
     '''
 
     @staticmethod
-    def forward(ctx, data: torch.Tensor, weights: torch.Tensor, octree: Octree,
-                depth: int, in_channels: int, out_channels: int,
-                kernel_size: List[int] = [3, 3, 3], stride: int = 1,
-                nempty: bool = False, max_buffer: int = int(2e8)):
+    @torch.amp.custom_fwd(device_type='cuda', cast_inputs=torch.bfloat16)
+    def forward(
+        ctx, data: torch.Tensor, weights: torch.Tensor, octree: Octree,
+        depth: int, in_channels: int, out_channels: int,
+        kernel_size: List[int] = [3, 3, 3], stride: int = 1,
+        nempty: bool = False, max_buffer: int = int(2e8),
+        forward_algo='implicit_gemm',
+        backward_feat_algo='memory_efficient_gemm',
+        backward_weight_algo='memory_efficient_gemm'
+    ):
         octree_deconv = _OctreeDeconv(
-            in_channels, out_channels, kernel_size, stride, nempty, max_buffer)
+            in_channels, out_channels, kernel_size, stride, nempty, max_buffer, forward_algo, backward_feat_algo, backward_weight_algo)
         octree_deconv.setup(octree, depth)
         out = octree_deconv.check_and_init(data)
         out = octree_deconv.backward_gemm(out, data, weights)
@@ -368,13 +376,14 @@ class OctreeDeconvFunction(Function):
         return out
 
     @staticmethod
+    @torch.amp.custom_bwd(device_type='cuda')
     def backward(ctx, grad):
         data, weights = ctx.saved_tensors
         octree_deconv = ctx.octree_deconv
 
         grad_out = None
         if ctx.needs_input_grad[0]:
-            grad_out = torch.zeros_like(data)
+            grad_out = torch.zeros_like(data) if octree_deconv.forward_algo == 'memory_efficient_gemm' else None
             grad_out = octree_deconv.forward_gemm(grad_out, grad, weights)
 
         grad_w = None
@@ -382,7 +391,7 @@ class OctreeDeconvFunction(Function):
             grad_w = torch.zeros_like(weights)
             grad_w = octree_deconv.weight_gemm(grad_w, grad, data)
 
-        return (grad_out, grad_w) + (None,) * 8
+        return (grad_out, grad_w) + (None,) * 11
 
 
 # alias
