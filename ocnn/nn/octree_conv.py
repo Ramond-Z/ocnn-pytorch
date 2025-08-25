@@ -16,7 +16,7 @@ from .octree2col import octree2col, col2octree
 from .octree_pad import octree_pad, octree_depad
 from .implicit_gemm import (
     ocnn_forward_implicit_gemm,
-    # ocnn_backward_weight_implicit_gemm
+    ocnn_backward_weight_implicit_gemm
 )
 
 
@@ -261,7 +261,7 @@ class OctreeConvBase:
         if self.backward_feat_algo == 'memory_efficient_gemm':
             return self.memory_efficient_gemm_backward(out, grad, weights)
         elif self.backward_feat_algo == 'implicit_gemm':
-            return ocnn_forward_implicit_gemm(grad, weights.permute(1, 0, 2).contiguous(), None, self.inverse_neighbour)
+            return ocnn_forward_implicit_gemm(grad.contiguous(), weights.permute(1, 0, 2).contiguous(), None, self.inverse_neighbour.contiguous())
         else:
             raise ValueError('Unsupported backward w.r.t feat algorithm: {}'.format(self.backward_feat_algo))
 
@@ -273,8 +273,8 @@ class OctreeConvBase:
     ):
         if self.backward_weight_algo == 'memory_efficient_gemm':
             return self.memory_efficient_gemm_backward_weight(out, data, grad)
-        # elif self.backward_weight_algo == 'implicit_gemm':
-        #     return ocnn_backward_weight_implicit_gemm(grad.contiguous(), data.contiguous(), self.neigh)
+        elif self.backward_weight_algo == 'implicit_gemm':
+            return ocnn_backward_weight_implicit_gemm(grad.contiguous(), data.contiguous(), self.neigh.contiguous())
         else:
             raise ValueError('Unsupported backward w.r.t weight algorithm: {}'.format(self.backward_weight_algo))
 
@@ -347,12 +347,12 @@ class OctreeConvFunction(Function):
 
         grad_out = None
         if ctx.needs_input_grad[0]:
-            grad_out = torch.zeros_like(data)
+            grad_out = torch.zeros_like(data) if octree_conv.backward_feat_algo == 'memory_efficient_gemm' else None
             grad_out = octree_conv.backward_gemm(grad_out, grad, weights)
 
         grad_w = None
         if ctx.needs_input_grad[1]:
-            grad_w = torch.zeros_like(weights)
+            grad_w = torch.zeros_like(weights) if octree_conv.backward_weight_algo == 'memory_efficient_gemm' else None
             grad_w = octree_conv.weight_gemm(grad_w, data, grad)
 
         return (grad_out, grad_w) + (None,) * 11
