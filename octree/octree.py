@@ -98,6 +98,27 @@ class Octree:
         '133': torch.tensor([9, 10, 11, 12, 13, 14, 15, 16, 17], device=device),
     }
 
+  def state_dict(self):
+    return {
+      'depth': self.depth,
+      'full_depth': self.full_depth,
+      'batch_size': self.batch_size,
+      'keys': self.keys,
+      'children': self.children,
+      'neighs': self.neighs,
+      'inv_neighs': self.inv_neighs,
+      'features': self.features,
+      'normals': self.normals,
+      'points': self.points,
+      'nnum': self.nnum,
+      'nnum_nempty': self.nnum_nempty,
+      'batch_id': self.batch_nnum,
+      'batch_id_nempty': self.batch_nnum_nempty
+    }
+
+  def load_state_dict(self, dict):
+    pass
+
   def key(self, depth: int, nempty: bool = False):
     r''' Returns the shuffled key of each octree node.
 
