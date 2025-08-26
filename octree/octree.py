@@ -112,12 +112,25 @@ class Octree:
       'points': self.points,
       'nnum': self.nnum,
       'nnum_nempty': self.nnum_nempty,
-      'batch_id': self.batch_nnum,
-      'batch_id_nempty': self.batch_nnum_nempty
+      'batch_nnum': self.batch_nnum,
+      'batch_nnum_nempty': self.batch_nnum_nempty
     }
 
   def load_state_dict(self, dict):
-    pass
+    self.depth = dict['depth']
+    self.full_depth = dict['full_depth']
+    self.batch_size = dict['batch_size']
+    self.keys = dict['keys']
+    self.children = dict['children']
+    self.neighs = dict['neighs']
+    self.inv_neighs = dict['inv_neighs']
+    self.features = dict['features']
+    self.normals = dict['normals']
+    self.points = dict['points']
+    self.nnum = dict['nnum']
+    self.nnum_nempty = dict['nnum_nempty']
+    self.batch_nnum = dict['batch_nnum']
+    self.batch_nnum_nempty = dict['batch_nnum_nempty']
 
   def key(self, depth: int, nempty: bool = False):
     r''' Returns the shuffled key of each octree node.
