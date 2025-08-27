@@ -60,6 +60,7 @@ class Octree:
     self.children = [None] * num
     self.neighs = [None] * num
     self.inv_neighs = [None] * num
+    self.inv_neighs_stride2 = [None] * num
     self.features = [None] * num
     self.normals = [None] * num
     self.points = [None] * num
@@ -391,6 +392,10 @@ class Octree:
       neigh[:, invalid] = -1
       self.neighs[depth] = neigh.view(-1, 27)  # (B*N, 27)
       self.inv_neighs[depth] = neigh.view(-1, 27).flip(1)
+      inv_neigh_stride2 = self.inv_neighs[depth].clone()
+      inv_neigh_stride2[inv_neigh_stride2 % 8 != 0] = -1
+      inv_neigh_stride2[inv_neigh_stride2 != -1] //= 8
+      self.inv_neighs_stride2[depth] = inv_neigh_stride2
 
     else:
       child_p = self.children[depth-1]
@@ -403,6 +408,10 @@ class Octree:
       neigh[invalid] = -1
       self.neighs[depth] = neigh.view(-1, 27)
       self.inv_neighs[depth] = neigh.view(-1, 27).flip(1)
+      inv_neigh_stride2 = self.inv_neighs[depth].clone()
+      inv_neigh_stride2[inv_neigh_stride2 % 8 != 0] = -1
+      inv_neigh_stride2[inv_neigh_stride2 != -1] //= 8
+      self.inv_neighs_stride2[depth] = inv_neigh_stride2
 
   def construct_all_neigh(self):
     r''' A convenient handler for constructing all neighbors.
@@ -494,7 +503,7 @@ class Octree:
     if stride == 1:
       inv_neigh = self.inv_neighs[depth]
     elif stride == 2:
-      inv_neigh = self.inv_neighs[depth][::8].clone()
+      inv_neigh = self.inv_neighs_stride2[depth]
     else:
       raise ValueError('Unsupported stride {}'.format(stride))
 
@@ -616,6 +625,7 @@ class Octree:
     octree.children = list_to_device(self.children)
     octree.neighs = list_to_device(self.neighs)
     octree.inv_neighs = list_to_device(self.inv_neighs)
+    octree.inv_neighs_stride2 = list_to_device(self.inv_neighs_stride2)
     octree.features = list_to_device(self.features)
     octree.normals = list_to_device(self.normals)
     octree.points = list_to_device(self.points)

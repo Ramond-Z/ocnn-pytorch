@@ -460,9 +460,9 @@ class OctreeConv(OctreeConvBase, torch.nn.Module):
         self.forward_algo = forward_algo
         self.backward_feat_algo = backward_feat_algo
         self.backward_weight_algo = backward_weight_algo
-        if self.backward_feat_algo == 'implicit_gemm' and stride != 1:
-            print('[warning]: implicit gemm backward w.r.t input feature only supports cases with stride == 1 for OctreeConv, using memory_efficient_gemm instead')
-            self.backward_feat_algo = 'memory_efficient_gemm'
+        # if self.backward_feat_algo == 'implicit_gemm' and stride != 1:
+        #     print('[warning]: implicit gemm backward w.r.t input feature only supports cases with stride == 1 for OctreeConv, using memory_efficient_gemm instead')
+        #     self.backward_feat_algo = 'memory_efficient_gemm'
         if self.use_bias:
             self.bias = torch.nn.Parameter(torch.Tensor(out_channels))
         self.reset_parameters()
