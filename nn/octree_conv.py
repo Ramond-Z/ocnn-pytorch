@@ -246,7 +246,7 @@ class OctreeConvBase:
         if self.forward_algo == 'memory_efficient_gemm':
             return self.memory_efficient_gemm_forward(out, data, weights)
         elif self.forward_algo == 'implicit_gemm':
-            return ocnn_forward_implicit_gemm(data, weights.permute(2, 0, 1).contiguous(), None, self.neigh)
+            return ocnn_forward_implicit_gemm(data.contiguous(), weights.permute(2, 0, 1).contiguous(), None, self.neigh)
         else:
             raise ValueError('Unsupported forward algorithm: {}'.format(self.forward_algo))
 
@@ -365,16 +365,13 @@ class OctreeDeconvFunction(Function):
     '''
 
     @staticmethod
-    @torch.amp.custom_fwd(device_type='cuda', cast_inputs=torch.bfloat16)
-    def forward(
-        ctx, data: torch.Tensor, weights: torch.Tensor, octree: Octree,
-        depth: int, in_channels: int, out_channels: int,
-        kernel_size: List[int] = [3, 3, 3], stride: int = 1,
-        nempty: bool = False, max_buffer: int = int(2e8),
-        forward_algo='implicit_gemm',
-        backward_feat_algo='memory_efficient_gemm',
-        backward_weight_algo='memory_efficient_gemm'
-    ):
+    def forward(ctx, data: torch.Tensor, weights: torch.Tensor, octree: Octree,
+                depth: int, in_channels: int, out_channels: int,
+                kernel_size: List[int] = [3, 3, 3], stride: int = 1,
+                nempty: bool = False, max_buffer: int = int(2e8),
+                forward_algo='implicit_gemm',
+                backward_feat_algo='memory_efficient_gemm',
+                backward_weight_algo='memory_efficient_gemm'):
         octree_deconv = _OctreeDeconv(
             in_channels, out_channels, kernel_size, stride, nempty, max_buffer, forward_algo, backward_feat_algo, backward_weight_algo)
         octree_deconv.setup(octree, depth)
@@ -464,7 +461,7 @@ class OctreeConv(OctreeConvBase, torch.nn.Module):
         self.backward_feat_algo = backward_feat_algo
         self.backward_weight_algo = backward_weight_algo
         if self.backward_feat_algo == 'implicit_gemm' and stride != 1:
-            print('[warning]: implicit gemm backward w.r.t input feature only supports cases with stride == 1 for OctreeConv, using memory_efficient_gemm instead\nIf this is a deconv module, please ignore this warning')
+            print('[warning]: implicit gemm backward w.r.t input feature only supports cases with stride == 1 for OctreeConv, using memory_efficient_gemm instead')
             self.backward_feat_algo = 'memory_efficient_gemm'
         if self.use_bias:
             self.bias = torch.nn.Parameter(torch.Tensor(out_channels))
@@ -518,34 +515,34 @@ class OctreeDeconv(OctreeConv):
     Please refer to :class:`OctreeConv` for the meaning of the arguments.
     '''
 
-    def __init__(
-            self,
-            in_channels,
-            out_channels,
-            kernel_size=[3],
-            stride=1,
-            nempty=False,
-            direct_method=False,
-            use_bias=False,
-            max_buffer=int(200000000),
-            forward_algo='memory_efficient_gemm',
-            backward_feat_algo='memory_efficient_gemm',
-            backward_weight_algo='memory_efficient_gemm'
-    ):
-        super().__init__(
-            in_channels,
-            out_channels,
-            kernel_size,
-            stride,
-            nempty,
-            direct_method,
-            use_bias,
-            max_buffer,
-            forward_algo,
-            backward_feat_algo,
-            backward_weight_algo
-        )
-        self.backward_feat_algo = backward_feat_algo  # override the octree conv logic because the bwd w.r.t. feat is correct for deconv even if stride is 2
+    # def __init__(
+    #         self,
+    #         in_channels,
+    #         out_channels,
+    #         kernel_size=[3],
+    #         stride=1,
+    #         nempty=False,
+    #         direct_method=False,
+    #         use_bias=False,
+    #         max_buffer=int(200000000),
+    #         forward_algo='memory_efficient_gemm',
+    #         backward_feat_algo='memory_efficient_gemm',
+    #         backward_weight_algo='memory_efficient_gemm'
+    # ):
+    #     super().__init__(
+    #         in_channels,
+    #         out_channels,
+    #         kernel_size,
+    #         stride,
+    #         nempty,
+    #         direct_method,
+    #         use_bias,
+    #         max_buffer,
+    #         forward_algo,
+    #         backward_feat_algo,
+    #         backward_weight_algo
+    #     )
+    #     self.backward_feat_algo = backward_feat_algo  # override the octree conv logic because the bwd w.r.t. feat is correct for deconv even if stride is 2
 
     def is_conv_layer(self): return False
 
@@ -561,7 +558,7 @@ class OctreeDeconv(OctreeConv):
             if not self.nempty:
                 data = octree_depad(data, octree, depth)
 
-        if self.direct_method:
+        if self.direct_method or self.forward_algo == 'explicit_gemm':
             col = torch.mm(data, self.weights.flatten(0, 1).t())
             col = col.view(col.shape[0], self.kdim, -1)
             out = col2octree(
@@ -570,7 +567,7 @@ class OctreeDeconv(OctreeConv):
             out = octree_deconv(
                 data, self.weights, octree, depth, self.in_channels,
                 self.out_channels, self.kernel_size, self.stride, self.nempty,
-                self.max_buffer)
+                self.max_buffer, self.forward_algo, self.backward_feat_algo, self.backward_weight_algo)
 
         if self.use_bias:
             out += self.bias
