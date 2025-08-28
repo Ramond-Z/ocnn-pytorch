@@ -16,7 +16,10 @@ from .octree2col import octree2col, col2octree
 from .octree_pad import octree_pad, octree_depad
 from .implicit_gemm import (
     ocnn_forward_implicit_gemm,
-    ocnn_backward_weight_implicit_gemm
+    ocnn_backward_weight_implicit_gemm,
+    flex_gemm_backward_weight_implicit,
+    flex_gemm_forward_implicit,
+    flex_gemm_forward_implicit_zero_init
 )
 
 
@@ -569,3 +572,127 @@ class OctreeDeconv(OctreeConv):
         if self.use_bias:
             out += self.bias
         return out
+
+
+class _flexible_gemm(torch.autograd.Function):
+    @staticmethod
+    def forward(data, weight, neighbour, inv_neighbour):
+        result = flex_gemm_forward_implicit(data, weight, None, neighbour)
+        return result
+
+    @staticmethod
+    def setup_context(ctx, inputs, output):
+        data, weight, neighbour, inv_neighbour = inputs
+        ctx.save_for_backward(data, weight, neighbour, inv_neighbour)
+
+    @staticmethod
+    def backward(ctx, upstream_grad):
+        data, weight, neighbour, inv_neighbour = ctx.saved_tensors
+        grad_data, grad_weight = None, None
+        if ctx.needs_input_grad[0] or ctx.needs_input_grad[1]:
+            upstream_grad = upstream_grad.contiguous()
+        if ctx.needs_input_grad[0]:
+            grad_data = flex_gemm_forward_implicit(upstream_grad, weight.permute(2, 1, 0).contiguous(), None, inv_neighbour)
+        if ctx.needs_input_grad[1]:
+            grad_weight = flex_gemm_backward_weight_implicit(upstream_grad, data, neighbour)
+        return grad_data, grad_weight, None, None
+
+
+class _flexible_gemm_zero_init(torch.autograd.Function):
+    @staticmethod
+    def forward(data, weight, neighbour, inv_neighbour):
+        return flex_gemm_forward_implicit_zero_init(data, weight, None, neighbour)
+
+    @staticmethod
+    def setup_context(ctx, inputs, output):
+        data, weight, neighbour, inv_neighbour = inputs
+        ctx.save_for_backward(data, weight, neighbour, inv_neighbour)
+
+    @staticmethod
+    def backward(ctx, upstream_grad):
+        data, weight, neighbour, inv_neighbour = ctx.saved_tensors
+        grad_data, grad_weight = None, None
+        if ctx.needs_input_grad[0] or ctx.needs_input_grad[1]:
+            upstream_grad = upstream_grad.contiguous()
+        if ctx.needs_input_grad[0]:
+            grad_data = flex_gemm_forward_implicit_zero_init(upstream_grad, weight.permute(2, 1, 0).contiguous(), None, inv_neighbour)
+        if ctx.needs_input_grad[1]:
+            grad_weight = flex_gemm_backward_weight_implicit(upstream_grad, data, neighbour)
+        return grad_data, grad_weight, None, None
+
+
+def flexible_gemm(data: torch.Tensor, weight: torch.Tensor, neighbour: torch.Tensor, inv_neighbour: torch.Tensor):
+    return _flexible_gemm.apply(data, weight, neighbour, inv_neighbour)
+
+
+def flexible_gemm_zero_init(data: torch.Tensor, weight: torch.Tensor, neighbour: torch.Tensor, inv_neighbour: torch.Tensor):
+    return _flexible_gemm_zero_init.apply(data, weight, neighbour, inv_neighbour)
+
+
+class OctreeConvNew(torch.nn.Module):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: List[int] = [3],
+        stride: int = 1,
+        nempty: bool = False,
+        use_bias: bool = True,
+        gemm_force_zero_init = False
+    ):
+        super().__init__()
+        self.in_channels: int = in_channels
+        self.out_channels: int = out_channels
+        self.kernel_size: list = resize_with_last_val(kernel_size)
+        self.kernel_name: str = list2str(self.kernel_size)
+        self.stride: int = stride
+        self.nempty: bool = nempty
+
+        self.neighbour_size: int = self.kernel_size[0] * self.kernel_size[1] * self.kernel_size[2]
+        self.weights_shape: tuple = (self.out_channels, self.neighbour_size, self.in_channels)
+        self.weights = torch.nn.Parameter(torch.empty(self.weights_shape), requires_grad=True)
+        self.bias = torch.nn.Parameter(torch.empty((out_channels, )), requires_grad=True) if use_bias else None
+        self.gemm_fn = flexible_gemm_zero_init if gemm_force_zero_init else flexible_gemm
+
+    def forward(self, data: torch.Tensor, octree: Octree, depth: int):
+        neighbour = octree.get_neigh(depth, self.kernel_name, self.stride, self.nempty, use_new_stride2=True)
+        inv_neighbour = octree.get_inv_neigh(depth, self.kernel_name, self.stride, self.nempty)
+        result = self.gemm_fn(data, self.weights, neighbour, inv_neighbour)
+        if self.bias is not None:
+            result = result + self.bias
+        return result
+
+
+class OctreeDeconvNew(torch.nn.Module):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: List[int] = [3],
+        stride: int = 1,
+        nempty: bool = False,
+        use_bias: bool = True,
+        gemm_force_zero_init = False
+    ):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = resize_with_last_val(kernel_size)
+        self.kernel_name = list2str(self.kernel_size)
+        self.stride = stride
+        self.nempty = nempty
+
+        self.neighbour_size: int = self.kernel_size[0] * self.kernel_size[1] * self.kernel_size[2]
+        self.weights_shape: tuple = (self.out_channels, self.neighbour_size, self.in_channels)
+        self.weights = torch.nn.Parameter(torch.empty(self.weights_shape), requires_grad=True)
+        self.bias = torch.nn.Parameter(torch.empty(out_channels, ), requires_grad=True) if use_bias else None
+        self.gemm_fn = flexible_gemm_zero_init if gemm_force_zero_init else flexible_gemm
+
+    def forward(self, data: torch.Tensor, octree: Octree, depth: int):
+        neighbour = octree.get_neigh(depth, self.kernel_name, self.stride, self.nempty, use_new_stride2=True)
+        inv_neighbour = octree.get_inv_neigh(depth, self.kernel_name, self.stride, self.nempty)
+
+        result = self.gemm_fn(data, self.weights, inv_neighbour, neighbour)
+        if self.bias is not None:
+            result = result + self.bias
+        return result
