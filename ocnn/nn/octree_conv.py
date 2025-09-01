@@ -19,7 +19,7 @@ from .implicit_gemm import (
     ocnn_backward_weight_implicit_gemm,
     flex_gemm_backward_weight_implicit,
     flex_gemm_forward_implicit,
-    flex_gemm_forward_implicit_zero_init
+    flex_gemm_forward_implicit_zero_init,
 )
 
 
@@ -296,13 +296,6 @@ class _OctreeDeconv(OctreeConvBase):
     def is_conv_layer(self): return False
 
 
-def calc_err(src, ref):
-    abs_err = (src - ref).float().abs()
-    rel_err = abs_err / torch.clamp_min(ref.float().abs(), 1e-6)
-    err = torch.minimum(abs_err, rel_err).max()
-    return err
-
-
 class OctreeConvFunction(Function):
     r''' Wrap the octree convolution for auto-diff.
     '''
@@ -460,9 +453,6 @@ class OctreeConv(OctreeConvBase, torch.nn.Module):
         self.forward_algo = forward_algo
         self.backward_feat_algo = backward_feat_algo
         self.backward_weight_algo = backward_weight_algo
-        # if self.backward_feat_algo == 'implicit_gemm' and stride != 1:
-        #     print('[warning]: implicit gemm backward w.r.t input feature only supports cases with stride == 1 for OctreeConv, using memory_efficient_gemm instead')
-        #     self.backward_feat_algo = 'memory_efficient_gemm'
         if self.use_bias:
             self.bias = torch.nn.Parameter(torch.Tensor(out_channels))
         self.reset_parameters()
@@ -514,36 +504,6 @@ class OctreeDeconv(OctreeConv):
 
     Please refer to :class:`OctreeConv` for the meaning of the arguments.
     '''
-
-    # def __init__(
-    #         self,
-    #         in_channels,
-    #         out_channels,
-    #         kernel_size=[3],
-    #         stride=1,
-    #         nempty=False,
-    #         direct_method=False,
-    #         use_bias=False,
-    #         max_buffer=int(200000000),
-    #         forward_algo='memory_efficient_gemm',
-    #         backward_feat_algo='memory_efficient_gemm',
-    #         backward_weight_algo='memory_efficient_gemm'
-    # ):
-    #     super().__init__(
-    #         in_channels,
-    #         out_channels,
-    #         kernel_size,
-    #         stride,
-    #         nempty,
-    #         direct_method,
-    #         use_bias,
-    #         max_buffer,
-    #         forward_algo,
-    #         backward_feat_algo,
-    #         backward_weight_algo
-    #     )
-    #     self.backward_feat_algo = backward_feat_algo  # override the octree conv logic because the bwd w.r.t. feat is correct for deconv even if stride is 2
-
     def is_conv_layer(self): return False
 
     def forward(self, data: torch.Tensor, octree: Octree, depth: int):
@@ -638,7 +598,8 @@ class OctreeConvNew(torch.nn.Module):
         stride: int = 1,
         nempty: bool = False,
         use_bias: bool = True,
-        gemm_force_zero_init = False
+        gemm_force_zero_init=False,
+        use_fused_stride2=False,  #  Still developing
     ):
         super().__init__()
         self.in_channels: int = in_channels
@@ -655,11 +616,13 @@ class OctreeConvNew(torch.nn.Module):
         self.gemm_fn = flexible_gemm_zero_init if gemm_force_zero_init else flexible_gemm
 
     def forward(self, data: torch.Tensor, octree: Octree, depth: int):
-        neighbour = octree.get_neigh(depth, self.kernel_name, self.stride, self.nempty, use_new_stride2=True)
+        neighbour = octree.get_neigh(depth, self.kernel_name, self.stride, self.nempty)
         inv_neighbour = octree.get_inv_neigh(depth, self.kernel_name, self.stride, self.nempty)
         result = self.gemm_fn(data, self.weights, neighbour, inv_neighbour)
         if self.bias is not None:
             result = result + self.bias
+        if self.stride == 2 and not self.nempty:
+            result = octree_pad(result, octree, depth - 1)
         return result
 
 
@@ -672,7 +635,7 @@ class OctreeDeconvNew(torch.nn.Module):
         stride: int = 1,
         nempty: bool = False,
         use_bias: bool = True,
-        gemm_force_zero_init = False
+        gemm_force_zero_init=False
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -689,9 +652,10 @@ class OctreeDeconvNew(torch.nn.Module):
         self.gemm_fn = flexible_gemm_zero_init if gemm_force_zero_init else flexible_gemm
 
     def forward(self, data: torch.Tensor, octree: Octree, depth: int):
-        neighbour = octree.get_neigh(depth, self.kernel_name, self.stride, self.nempty, use_new_stride2=True)
-        inv_neighbour = octree.get_inv_neigh(depth, self.kernel_name, self.stride, self.nempty)
-
+        neighbour = octree.get_neigh(depth if self.stride == 1 else depth + 1, self.kernel_name, self.stride, self.nempty)
+        inv_neighbour = octree.get_inv_neigh(depth if self.stride == 1 else depth + 1, self.kernel_name, self.stride, self.nempty)
+        if self.stride == 2 and not self.nempty:
+            data = octree_depad(data, octree, depth)
         result = self.gemm_fn(data, self.weights, inv_neighbour, neighbour)
         if self.bias is not None:
             result = result + self.bias

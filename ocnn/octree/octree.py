@@ -368,8 +368,8 @@ class Octree:
       inv_neigh_stride2 = self.inv_neighs[depth].clone()
       inv_neigh_stride2[inv_neigh_stride2 % 8 != 0] = -1
       inv_neigh_stride2[inv_neigh_stride2 != -1] //= 8
-      nempty_node_idx = torch.nonzero(self.children[depth - 1] >= 0, as_tuple=True)[0]
-      inv_neigh_stride2[inv_neigh_stride2 != -1] = nempty_node_idx[inv_neigh_stride2[inv_neigh_stride2 != -1]]
+      # nempty_node_idx = torch.nonzero(self.children[depth - 1] >= 0, as_tuple=True)[0]
+      # inv_neigh_stride2[inv_neigh_stride2 != -1] = nempty_node_idx[inv_neigh_stride2[inv_neigh_stride2 != -1]]
       self.inv_neighs_stride2[depth] = inv_neigh_stride2
 
     else:
@@ -390,8 +390,8 @@ class Octree:
       inv_neigh_stride2 = self.inv_neighs[depth].clone()
       inv_neigh_stride2[inv_neigh_stride2 % 8 != 0] = -1
       inv_neigh_stride2[inv_neigh_stride2 != -1] //= 8
-      nempty_node_idx = torch.nonzero(self.children[depth - 1] >= 0, as_tuple=True)[0]
-      inv_neigh_stride2[inv_neigh_stride2 != -1] = nempty_node_idx[inv_neigh_stride2[inv_neigh_stride2 != -1]]
+      # nempty_node_idx = torch.nonzero(self.children[depth - 1] >= 0, as_tuple=True)[0]
+      # inv_neigh_stride2[inv_neigh_stride2 != -1] = nempty_node_idx[inv_neigh_stride2[inv_neigh_stride2 != -1]]
       self.inv_neighs_stride2[depth] = inv_neigh_stride2
 
   def construct_all_neigh(self):
