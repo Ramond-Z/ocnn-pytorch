@@ -59,6 +59,7 @@ class Octree:
     self.keys = [None] * num
     self.children = [None] * num
     self.neighs = [None] * num
+    self.neighs_stride2 = [None] * num
     self.inv_neighs = [None] * num
     self.inv_neighs_stride2 = [None] * num
     self.features = [None] * num
@@ -334,7 +335,9 @@ class Octree:
       self.keys.append(None)
       self.children.append(None)
       self.neighs.append(None)
+      self.neighs_stride2.append(None)
       self.inv_neighs.append(None)
+      self.inv_neighs_stride2.append(None)
       self.features.append(None)
       self.normals.append(None)
       self.points.append(None)
@@ -391,10 +394,16 @@ class Octree:
       invalid = torch.logical_or((xyz < 0).any(1), (xyz >= bound).any(1))
       neigh[:, invalid] = -1
       self.neighs[depth] = neigh.view(-1, 27)  # (B*N, 27)
+      neighs_stride2 = self.neighs[depth][::8].clone()
+      neighs_all_stride2 = torch.ones((self.nnum[depth - 1], 27), dtype=torch.long) * -1
+      neighs_all_stride2[self.children[depth - 1] >= 0] = neighs_stride2
+      self.neighs_stride2[depth] = neighs_all_stride2
       self.inv_neighs[depth] = neigh.view(-1, 27).flip(1)
       inv_neigh_stride2 = self.inv_neighs[depth].clone()
       inv_neigh_stride2[inv_neigh_stride2 % 8 != 0] = -1
       inv_neigh_stride2[inv_neigh_stride2 != -1] //= 8
+      # nempty_node_idx = torch.nonzero(self.children[depth - 1] >= 0, as_tuple=True)[0]
+      # inv_neigh_stride2[inv_neigh_stride2 != -1] = nempty_node_idx[inv_neigh_stride2[inv_neigh_stride2 != -1]]
       self.inv_neighs_stride2[depth] = inv_neigh_stride2
 
     else:
@@ -407,10 +416,16 @@ class Octree:
       neigh = child_p * 8 + self.lut_child
       neigh[invalid] = -1
       self.neighs[depth] = neigh.view(-1, 27)
+      neighs_stride2 = self.neighs[depth][::8].clone()
+      neighs_all_stride2 = torch.ones((self.nnum[depth - 1], 27), dtype=torch.long) * -1
+      neighs_all_stride2[self.children[depth - 1] >= 0] = neighs_stride2
+      self.neighs_stride2[depth] = neighs_all_stride2
       self.inv_neighs[depth] = neigh.view(-1, 27).flip(1)
       inv_neigh_stride2 = self.inv_neighs[depth].clone()
       inv_neigh_stride2[inv_neigh_stride2 % 8 != 0] = -1
       inv_neigh_stride2[inv_neigh_stride2 != -1] //= 8
+      # nempty_node_idx = torch.nonzero(self.children[depth - 1] >= 0, as_tuple=True)[0]
+      # inv_neigh_stride2[inv_neigh_stride2 != -1] = nempty_node_idx[inv_neigh_stride2[inv_neigh_stride2 != -1]]
       self.inv_neighs_stride2[depth] = inv_neigh_stride2
 
   def construct_all_neigh(self):
@@ -461,7 +476,7 @@ class Octree:
     return idx
 
   def get_neigh(self, depth: int, kernel: str = '333', stride: int = 1,
-                nempty: bool = False):
+                nempty: bool = False, use_new_stride2=False):
     r''' Returns the neighborhoods given the depth and a kernel shape.
 
     Args:
@@ -479,7 +494,7 @@ class Octree:
       neigh = self.neighs[depth]
     elif stride == 2:
       # clone neigh to avoid self.neigh[depth] being modified
-      neigh = self.neighs[depth][::8].clone()
+      neigh = self.neighs_stride2[depth] if use_new_stride2 else self.neighs[depth][::8].clone()
     else:
       raise ValueError('Unsupported stride {}'.format(stride))
 
@@ -624,6 +639,7 @@ class Octree:
     octree.keys = list_to_device(self.keys)
     octree.children = list_to_device(self.children)
     octree.neighs = list_to_device(self.neighs)
+    octree.neighs_stride2 = list_to_device(self.neighs_stride2)
     octree.inv_neighs = list_to_device(self.inv_neighs)
     octree.inv_neighs_stride2 = list_to_device(self.inv_neighs_stride2)
     octree.features = list_to_device(self.features)
