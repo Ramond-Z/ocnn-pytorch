@@ -7,6 +7,7 @@
 
 import torch
 import torch.nn
+import math
 from torch.autograd import Function
 from typing import List
 
@@ -589,6 +590,14 @@ def flexible_gemm_zero_init(data: torch.Tensor, weight: torch.Tensor, neighbour:
     return _flexible_gemm_zero_init.apply(data, weight, neighbour, inv_neighbour)
 
 
+def xavier_uniform_co_v_ci_(weight: torch.Tensor, cout, v, cin):
+    fan_in = v * cin
+    fan_out = v * cout
+    std = math.sqrt(2. / float(fan_in * fan_out))
+    a = math.sqrt(3.) * std
+    torch.nn.init.uniform_(weight, -a, a)
+
+
 class OctreeConvNew(torch.nn.Module):
     def __init__(
         self,
@@ -614,6 +623,12 @@ class OctreeConvNew(torch.nn.Module):
         self.weights = torch.nn.Parameter(torch.empty(self.weights_shape), requires_grad=True)
         self.bias = torch.nn.Parameter(torch.empty((out_channels, )), requires_grad=True) if use_bias else None
         self.gemm_fn = flexible_gemm_zero_init if gemm_force_zero_init else flexible_gemm
+        self.init_params()
+
+    def init_params(self):
+        xavier_uniform_co_v_ci_(self.weights, self.out_channels, self.neighbour_size, self.in_channels)
+        if self.bias is not None:
+            torch.nn.init.constant_(self.bias, 0)
 
     def forward(self, data: torch.Tensor, octree: Octree, depth: int):
         neighbour = octree.get_neigh(depth, self.kernel_name, self.stride, self.nempty)
@@ -650,6 +665,12 @@ class OctreeDeconvNew(torch.nn.Module):
         self.weights = torch.nn.Parameter(torch.empty(self.weights_shape), requires_grad=True)
         self.bias = torch.nn.Parameter(torch.empty(out_channels, ), requires_grad=True) if use_bias else None
         self.gemm_fn = flexible_gemm_zero_init if gemm_force_zero_init else flexible_gemm
+        self.init_params()
+
+    def init_params(self):
+        xavier_uniform_co_v_ci_(self.weights, self.out_channels, self.neighbour_size, self.in_channels)
+        if self.bias is not None:
+            torch.nn.init.constant_(self.bias, 0)
 
     def forward(self, data: torch.Tensor, octree: Octree, depth: int):
         neighbour = octree.get_neigh(depth if self.stride == 1 else depth + 1, self.kernel_name, self.stride, self.nempty)
