@@ -14,7 +14,7 @@ from .octree_pool import (octree_max_pool, OctreeMaxPool,
                           octree_max_unpool, OctreeMaxUnpool,
                           octree_global_pool, OctreeGlobalPool,
                           octree_avg_pool, OctreeAvgPool,)
-from .octree_conv import OctreeConv, OctreeDeconv
+from .octree_conv import OctreeConv, OctreeDeconv, OctreeDeconvNew, OctreeConvNew
 from .octree_gconv import OctreeGroupConv
 from .octree_dwconv import OctreeDWConv
 from .octree_norm import (OctreeBatchNorm, OctreeGroupNorm,
@@ -39,6 +39,7 @@ __all__ = [
     'OctreeInstanceNorm', 'OctreeBatchNorm', 'OctreeGroupNorm', 'OctreeNorm',
     'OctreeDropPath',
     'search_value', 'octree_align',
+    'OctreeConvNew', 'OctreeDeconvNew'
 ]
 
 classes = __all__

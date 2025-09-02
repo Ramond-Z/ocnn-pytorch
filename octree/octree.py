@@ -394,10 +394,10 @@ class Octree:
       invalid = torch.logical_or((xyz < 0).any(1), (xyz >= bound).any(1))
       neigh[:, invalid] = -1
       self.neighs[depth] = neigh.view(-1, 27)  # (B*N, 27)
-      neighs_stride2 = self.neighs[depth][::8].clone()
-      neighs_all_stride2 = torch.ones((self.nnum[depth - 1], 27), dtype=torch.long) * -1
-      neighs_all_stride2[self.children[depth - 1] >= 0] = neighs_stride2
-      self.neighs_stride2[depth] = neighs_all_stride2
+      # neighs_stride2 = self.neighs[depth][::8].clone()
+      # neighs_all_stride2 = torch.ones((self.nnum[depth - 1], 27), dtype=torch.long) * -1
+      # neighs_all_stride2[self.children[depth - 1] >= 0] = neighs_stride2
+      # self.neighs_stride2[depth] = neighs_all_stride2
       self.inv_neighs[depth] = neigh.view(-1, 27).flip(1)
       inv_neigh_stride2 = self.inv_neighs[depth].clone()
       inv_neigh_stride2[inv_neigh_stride2 % 8 != 0] = -1
@@ -416,10 +416,10 @@ class Octree:
       neigh = child_p * 8 + self.lut_child
       neigh[invalid] = -1
       self.neighs[depth] = neigh.view(-1, 27)
-      neighs_stride2 = self.neighs[depth][::8].clone()
-      neighs_all_stride2 = torch.ones((self.nnum[depth - 1], 27), dtype=torch.long) * -1
-      neighs_all_stride2[self.children[depth - 1] >= 0] = neighs_stride2
-      self.neighs_stride2[depth] = neighs_all_stride2
+      # neighs_stride2 = self.neighs[depth][::8].clone()
+      # neighs_all_stride2 = torch.ones((self.nnum[depth - 1], 27), dtype=torch.long) * -1
+      # neighs_all_stride2[self.children[depth - 1] >= 0] = neighs_stride2
+      # self.neighs_stride2[depth] = neighs_all_stride2
       self.inv_neighs[depth] = neigh.view(-1, 27).flip(1)
       inv_neigh_stride2 = self.inv_neighs[depth].clone()
       inv_neigh_stride2[inv_neigh_stride2 % 8 != 0] = -1
