@@ -14,10 +14,13 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "matplotlib>=3.10.8",
     "pandas>=2.3.3",
     "scipy>=1.15.3",
     "spconv-cu126>=2.3.8",
+    "tqdm>=4.67.3",
+    "trimesh>=4.11.1",
 ]
 
 [[tool.uv.index]]

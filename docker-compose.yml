@@ -5,7 +5,7 @@ services:
     network_mode: host
     ipc: host
     volumes:
-      - .:/workspace  # 将当前代码挂载进去
+      - .:/workspace
     deploy:
       resources:
         reservations:
@@ -17,6 +17,6 @@ services:
       - NCCL_DEBUG=INFO
       - NCCL_P2P_DISABLE=1
       - OCNN_AUTOTUNE_CACHE_PATH=./.ocnnconvt/autotune_cache.json
+      - UV_SYSTEM_PYTHON=1
     working_dir: /workspace
-    # 默认执行的命令
     command:  uv run test/benchmark_conv.py
